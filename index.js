@@ -4,48 +4,40 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, {
   polling: true,
 });
 
-// Temporary thumbnail store (per chat)
-const userThumbnail = {};
-
-const CHANNEL = "@OntorVideos"; // তোমার channel username
+const CHANNEL = "@OntorVideos";
+const userData = {};
 
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
 
-  // 1️⃣ Thumbnail image receive
+  // Save thumbnail image (for logic only)
   if (msg.photo) {
-    // highest quality image
-    const photo = msg.photo[msg.photo.length - 1];
-    userThumbnail[chatId] = photo.file_id;
+    userData[chatId] = { hasThumb: true };
 
     return bot.sendMessage(
       chatId,
-      "✅ Thumbnail saved\nNow send the video 🎬"
+      "✅ Thumbnail received\nNow send the video 🎬"
     );
   }
 
-  // 2️⃣ Video receive
+  // Handle video
   if (msg.video) {
-    const options = {
-      caption: "🔥 New Video\nPowered by Ontor Bot",
-    };
+    try {
+      await bot.sendVideo(CHANNEL, msg.video.file_id, {
+        caption: "🔥 New Video\nPowered by Ontor Bot",
+      });
 
-    // যদি thumbnail আগে পাঠানো হয়
-    if (userThumbnail[chatId]) {
-      options.thumbnail = userThumbnail[chatId];
+      delete userData[chatId];
+
+      return bot.sendMessage(
+        chatId,
+        "✅ Video successfully posted to channel!"
+      );
+    } catch (err) {
+      console.error(err);
+      return bot.sendMessage(chatId, "❌ Error posting video");
     }
-
-    await bot.sendVideo(CHANNEL, msg.video.file_id, options);
-
-    // clear thumbnail after use
-    delete userThumbnail[chatId];
-
-    return bot.sendMessage(chatId, "✅ Video posted with thumbnail!");
   }
 
-  // Default message
-  bot.sendMessage(
-    chatId,
-    "📌 Send thumbnail image first, then send video"
-  );
+  bot.sendMessage(chatId, "📌 Send thumbnail image first, then video");
 });
