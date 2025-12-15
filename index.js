@@ -1,70 +1,79 @@
 import TelegramBot from "node-telegram-bot-api";
+import fs from "fs";
+import sharp from "sharp";
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, {
-  polling: true,
-});
-
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 const CHANNEL = "@OntorVideos";
 
-// Temporary user storage
 const userData = {};
 
 bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
 
-  /* =========================
-     STEP 1: Receive Thumbnail
-     ========================= */
+  /* ================= THUMBNAIL ================= */
   if (msg.photo) {
-    // Get highest quality photo
     const photo = msg.photo[msg.photo.length - 1];
 
-    userData[chatId] = {
-      thumbnail: photo.file_id,
-    };
+    const rawThumb = ./raw_thumb_${chatId}.jpg;
+    const finalThumb = ./thumb_${chatId}.jpg;
+
+    const downloaded = await bot.downloadFile(photo.file_id, "./");
+    fs.renameSync(downloaded, rawThumb);
+
+    // Resize + compress for Telegram
+    await sharp(rawThumb)
+      .resize(1280, 720, { fit: "cover" })
+      .jpeg({ quality: 80 })
+      .toFile(finalThumb);
+
+    fs.unlinkSync(rawThumb);
+
+    userData[chatId] = { thumbPath: finalThumb };
 
     return bot.sendMessage(
       chatId,
-      "✅ Thumbnail received!\nNow send the video 🎬"
+      "✅ Thumbnail received & optimized\nNow send video 🎬"
     );
   }
 
-  /* =========================
-     STEP 2: Receive Video
-     ========================= */
+  /* ================= VIDEO ================= */
   if (msg.video) {
-    // Check thumbnail first
-    if (!userData[chatId]?.thumbnail) {
-      return bot.sendMessage(
-        chatId,
-        "❌ Please send thumbnail image first 🖼"
-      );
+    if (!userData[chatId]) {
+      return bot.sendMessage(chatId, "❌ Send thumbnail first 🖼");
     }
 
-    try {
-      await bot.sendVideo(CHANNEL, msg.video.file_id, {
-        caption: "🔥 New Video\nPowered by Ontor Bot",
-        thumbnail: userData[chatId].thumbnail, // 👈 thumbnail attached
-      });
+    const videoPath = ./video_${chatId}.mp4;
+    const downloaded = await bot.downloadFile(msg.video.file_id, "./");
+    fs.renameSync(downloaded, videoPath);
 
+    try {
+      await bot.sendVideo(
+        CHANNEL,
+        videoPath,
+        {
+          caption: "🔥 New Video\nPowered by Ontor Bot",
+          thumb: userData[chatId].thumbPath,
+          supports_streaming: true,
+          width: 1280,
+          height: 720,
+        }
+      );
+
+      fs.unlinkSync(videoPath);
+      fs.unlinkSync(userData[chatId].thumbPath);
       delete userData[chatId];
 
       return bot.sendMessage(
         chatId,
-        "✅ Video posted to channel successfully!"
+        "✅ Video posted with thumbnail successfully!"
       );
-    } catch (error) {
-      console.error("POST ERROR:", error);
-      return bot.sendMessage(
-        chatId,
-        "❌ Failed to post video\nCheck bot admin permission or video size"
-      );
+    } catch (err) {
+      console.error(err);
+      return bot.sendMessage(chatId, "❌ Upload failed");
     }
   }
 
-  /* =========================
-     DEFAULT MESSAGE
-     ========================= */
+  /* ================= DEFAULT ================= */
   bot.sendMessage(
     chatId,
     "📌 First send thumbnail image 🖼\nThen send video 🎬"
